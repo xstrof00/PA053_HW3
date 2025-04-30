@@ -1,11 +1,11 @@
 import re
+import os
 from flask import Flask, request, jsonify, Response
 import requests
 import xml.etree.ElementTree as ET
 import yfinance as yf
 from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
 from sympy.core.sympify import SympifyError
-import re
 
 app = Flask(__name__)
 
@@ -21,11 +21,9 @@ def handle_query():
     query_stock = request.args.get("queryStockPrice")
     query_eval = request.args.get("queryEval")
 
-    # Detect output format
     accept_header = request.headers.get("Accept", "")
     return_json = "application/json" in accept_header
 
-    # Only one parameter should be present
     params = [query_airport, query_stock, query_eval]
     if sum(p is not None for p in params) != 1:
         return Response("Error: Provide exactly one of the three query parameters.", status=400)
@@ -40,7 +38,6 @@ def handle_query():
         else:
             return Response("Invalid query", status=400)
 
-        # Format response
         if return_json:
             return jsonify(result)
         else:
@@ -50,14 +47,12 @@ def handle_query():
         return Response(f"Error: {str(e)}", status=500)
 
 def get_airport_temperature(iata_code):
-    # Get airport coordinates
     airport_resp = requests.get(f"http://www.airport-data.com/api/ap_info.json?iata={iata_code}")
     if airport_resp.status_code != 200:
         raise Exception("Could not fetch airport data")
     airport_data = airport_resp.json()
     lat, lon = airport_data["latitude"], airport_data["longitude"]
 
-    # Get temperature using Open-Meteo
     weather_resp = requests.get(
         f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
     )
@@ -74,12 +69,10 @@ def get_stock_price(symbol):
     return round(float(price[0]), 2)
 
 def evaluate_expression(expr):
-    # Allow only safe characters
     if not re.fullmatch(r"[0-9+\-*/().\s]+", expr):
         raise Exception("Invalid characters in expression")
 
     try:
-        # Apply transformations to allow implicit multiplication
         transformations = (standard_transformations + (implicit_multiplication_application,))
         parsed = parse_expr(expr, transformations=transformations, evaluate=True)
         result = parsed.evalf()
@@ -88,4 +81,5 @@ def evaluate_expression(expr):
         raise Exception("Invalid arithmetic expression: " + str(e))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
