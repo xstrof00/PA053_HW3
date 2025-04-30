@@ -1,3 +1,5 @@
+import ast
+import operator
 import re
 import os
 from flask import Flask, request, jsonify, Response
@@ -68,17 +70,45 @@ def get_stock_price(symbol):
         raise Exception("Could not retrieve stock price")
     return round(float(price[0]), 2)
 
-def evaluate_expression(expr):
+
+_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+}
+
+def evaluate_expression(expr: str) -> float:
     if not re.fullmatch(r"[0-9+\-*/().\s]+", expr):
         raise Exception("Invalid characters in expression")
-
+    
     try:
-        transformations = (standard_transformations + (implicit_multiplication_application,))
-        parsed = parse_expr(expr, transformations=transformations, evaluate=True)
-        result = parsed.evalf()
-        return float(result)
-    except Exception as e:
-        raise Exception("Invalid arithmetic expression: " + str(e))
+        node = ast.parse(expr, mode='eval')
+    except SyntaxError as e:
+        raise Exception(f"Syntax error in expression: {e}")
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.BinOp):
+            op_type = type(node.op)
+            if op_type not in _OPERATORS:
+                raise Exception(f"Unsupported operator: {op_type.__name__}")
+            left = _eval(node.left)
+            right = _eval(node.right)
+            return _OPERATORS[op_type](left, right)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            val = _eval(node.operand)
+            return +val if isinstance(node.op, ast.UAdd) else -val
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return node.value
+        if isinstance(node, ast.Num):
+            return node.n
+        raise Exception(f"Invalid expression element: {type(node).__name__}")
+
+    result = _eval(node)
+    return float(result)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
